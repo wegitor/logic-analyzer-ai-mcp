@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "saleae_logic_usage"
+version = "0.1.0"
+description = "Saleae Logic capture file parser using MCP"
+requires-python = ">=3.10"
+dependencies = [
+    "logic2-automation>=1.0.7",
+    "saleae>=0.12.0",
+    "grpcio>=1.71.0",
+    "grpcio-tools>=1.71.0",
+    "protobuf>=6.30.2",
+    "mcp[cli]",
+    "pytest"
+]
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "."
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "F", "I", "N", "W", "B"]
+ignore = []
+
+[tool.ruff.isort]
+known-first-party = ["src"]
+
+[project.scripts]
+run-mcp-server = "src.run_mcp_server:main" 

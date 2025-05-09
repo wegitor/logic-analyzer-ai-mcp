@@ -1,0 +1,8 @@
+logic2-automation
+grpcio
+protobuf
+grpcio-tools
+python-saleae>=0.1.0
+
+mcp[cli]>=0.1.0
+pytest>=7.0.0
