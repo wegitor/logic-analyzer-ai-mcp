@@ -98,6 +98,11 @@ This project is tested with [Saleae Logic 1.2.40 for Windows](https://downloads.
 - Please use this version for best compatibility.
 - Other versions may work, but are not guaranteed or officially supported by this project.
 
+### Note on Capture File Formats
+
+- **.logicdata format** is the recommended and best-supported file format for captures. All automation and parsing features are designed to work reliably with `.logicdata` files.
+- **.sal files** (used by some older or alternative Saleae software) are currently known to have bugs and compatibility issues. Automated conversion or processing of `.sal` files may fail or require manual fixes. For best results, always use `.logicdata` format for your captures.
+
 ## API Reference
 
 ### SaleaeController
