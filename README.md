@@ -62,10 +62,32 @@ To start the MCP server for remote control:
 
 ```bash
 # Using uv (recommended)
-uv --directory <project_path> run -m src.run_mcp_server
+uv --directory <project_path> run -m logic_analyzer_mcp
 ```
 
 Note: When using `uv`, make sure you have it installed and in your PATH. The `--directory` argument should point to the root directory of the project.
+
+## Current compatibility & Tested Version
+
+This project is tested with [Saleae Logic 1.2.40 for Windows](https://downloads.saleae.com/logic/1.2.40/Logic%201.2.40%20(Windows).zip).
+
+- Please use this version for best compatibility.
+- Other versions may work, but are not guaranteed or officially supported by this project.
+
+## Experimental note (alpha)
+
+This is an experimental (alpha) version. The following MCP tool sequence has been tested and works for me:
+
+1. saleae_connect (for Saleae Logic 1.2.40)
+2. saleae_configure
+3. saleae_capture — save capture in .logicdata format
+4. parse_capture_file (optional)
+5. get_digital_data_mcp
+6. saleae_export (optional. use csv if needed)
+
+Notes:
+- Make sure the Saleae Logic application is running and the scripting socket server is enabled before using these tools.
+- When calling saleae_capture, request the .logicdata format for best compatibility with the controller methods.
 
 ## Troubleshooting & Important Notes
 
@@ -90,13 +112,6 @@ Note: When using `uv`, make sure you have it installed and in your PATH. The `--
 
 - **Supported Versions:**
   - This project is designed for Saleae Logic 1.x/2.x automation. Some features may only be available in Logic 2.x with the appropriate automation API installed.
-
-## Compatibility & Tested Version
-
-This project is tested with [Saleae Logic 1.2.40 for Windows](https://downloads.saleae.com/logic/1.2.40/Logic%201.2.40%20(Windows).zip).
-
-- Please use this version for best compatibility.
-- Other versions may work, but are not guaranteed or officially supported by this project.
 
 ### Note on Capture File Formats
 
@@ -158,7 +173,7 @@ The main controller class that provides high-level access to Logic 2 functionali
                 "<path to folder>",
                 "run",
                 "-m",
-                "src.run_mcp_server"
+                "logic_analyzer_mcp"
             ]
         }
     }
@@ -173,7 +188,7 @@ The main controller class that provides high-level access to Logic 2 functionali
             "type": "stdio",
             "command": "python",
             "args": [
-                "<path to folder>\\src\\run_mcp_server.py"
+                "<path to folder>\\src\\logic_analyzer_mcp.py"
             ]
         }
     }
@@ -193,7 +208,7 @@ The main controller class that provides high-level access to Logic 2 functionali
                 "<path to folder>",
                 "run",
                 "-m",
-                "src.run_mcp_server"
+                "logic_analyzer_mcp"
             ]
         }
     }

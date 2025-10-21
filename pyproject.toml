@@ -3,7 +3,7 @@ requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "saleae_logic_usage"
+name = "logic_analyzer_mcp"
 version = "0.1.0"
 description = "Saleae Logic capture file parser using MCP"
 requires-python = ">=3.10"
@@ -38,4 +38,7 @@ ignore = []
 known-first-party = ["src"]
 
 [project.scripts]
-run-mcp-server = "src.run_mcp_server:main" 
+logic_analyzer_mcp = "logic_analyzer_mcp:main"
+
+[tool.setuptools]
+package-dir = {"logic_analyzer_mcp" = "src"}

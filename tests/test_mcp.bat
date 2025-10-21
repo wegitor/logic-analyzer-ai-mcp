@@ -1,0 +1,3 @@
+@echo off
+echo Starting MCP inspector...
+npx @modelcontextprotocol/inspector uv --directory "../" run -m logic_analyzer_mcp
