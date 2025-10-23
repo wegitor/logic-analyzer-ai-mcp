@@ -214,3 +214,58 @@ The main controller class that provides high-level access to Logic 2 functionali
     }
 }
 ```
+
+## Logic2 parameter description
+
+This project includes an opt-in experimental path for Logic2 automation. It is disabled by default. You can enable it in one of three ways:
+
+- CLI flag (recommended for one-off runs)
+  - Example:
+    - python -m logic_analyzer_mcp --logic2
+
+- Environment variable (convenient for CI / persistent shells)
+  - Example (Unix):
+    - LOGIC2=1 python -m logic_analyzer_mcp
+  - Example (Windows PowerShell):
+    - $env:LOGIC2='1'; python -m logic_analyzer_mcp
+
+- Programmatic API (when embedding the library)
+  - Call the helper before registering tools:
+    - from mcp_tools import set_logic2_enabled, setup_mcp_tools
+    - set_logic2_enabled(True)
+    - setup_mcp_tools(mcp, controller)
+  - Or pass the explicit parameter to setup_mcp_tools:
+    - setup_mcp_tools(mcp, controller, enable_logic2=True)
+
+Notes
+- Default behavior: Logic2 experimental features are OFF. When disabled the code prefers controller-based or offline fallbacks.
+- Safety: Experimental features may change — enable intentionally and test with your environment before using in production.
+- Troubleshooting: If enabling Logic2 fails, check that the logic2-automation / python-saleae packages are installed and that the Saleae app is running and reachable.
+
+## Claude configuration (example)
+
+Below is a minimal Claude MCP server configuration example you can adapt. Place this under your Claude configuration file or tooling settings.
+
+```json
+{
+  "mcpServers": {
+    "logic-analyzer-ai-mcp": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "--directory",
+        "<path to folder>",
+        "run",
+        "-m",
+        "logic_analyzer_mcp",
+        "--logic2"
+      ]
+    }
+  }
+}
+```
+
+Notes:
+- Remove the `--logic2` flag if you do not want experimental Logic2 tools enabled.
+- Adjust `<path to folder>` and other `uv` arguments to match your environment.
+- Use the `python` based configuration if you prefer to invoke the module directly instead of via `uv`.

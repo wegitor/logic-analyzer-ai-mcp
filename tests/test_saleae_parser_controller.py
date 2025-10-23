@@ -1,7 +1,7 @@
 import pytest
 import os
 from unittest.mock import Mock, patch, call
-from src.controllers.saleae_parser_controller import SaleaeParserController
+from logic_analyzer_mcp.controllers.saleae_parser_controller import SaleaeParserController
 
 # Constants for test files
 TEST_FILES_DIR = os.path.join(os.path.dirname(__file__), '..', 'logic2-automation', 'python', 'tests', 'assets')
