@@ -8,12 +8,12 @@ import json
 import time
 import logging
 import sys  # added for argv inspection
-from logic_analyzer_mcp.mcp_tools_experimental import setup_mcp_tools_experimental
+from mcp_tools_experimental import setup_mcp_tools_experimental
 
 logger = logging.getLogger(__name__)
 
 # Use shared saleae manager for instance creation/caching
-from logic_analyzer_mcp.saleae_manager import get_saleae
+from saleae_manager import get_saleae
 
 def setup_mcp_tools(mcp: FastMCP, controller=None, enable_logic2: Optional[bool] = None) -> None:
     """Setup MCP tools for Saleae Logic control.

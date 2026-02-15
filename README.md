@@ -1,271 +1,141 @@
-# Logic analyzer MCP
+# Logic Analyzer AI MCP
 
-This project provides an MCP (Message Control Protocol) server and automation interface for Saleae logic analyzers. It enables remote control, automation, and integration of Saleae Logic devices and captures, making it easy to script, manage, and analyze logic analyzer data programmatically.
+An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server for interfacing with **Saleae Logic** analyzers. This tool allows AI assistants (like Claude) to control hardware logic analyzers, capture signals, and export data for analysis.
 
 ## Features
 
-- Device configuration management
-- Capture configuration and execution
-- Data export in various formats
-- Logic file analysis and processing
-- Protocol decoding and visualization
-- Diagram generation and analysis
-- MCP (Message Control Protocol) server integration
-- Support for Logic 16 and other Logic 2 devices
-- Capture file parsing and analysis using python-saleae
+- **Device Management**: List connected devices, configure sample rates and channels.
+- **Automation**: Start and stop captures programmatically.
+- **Data Export**: Export captures to CSV/binary formats.
+- **Analysis**: Perform basic signal analysis (frequency, duty cycle, analog stats) directly via MCP.
+- **Logic 2 Integration**: Leverages the Saleae Logic 2 automation API for modern device support (Logic 8/16, Pro 8/16).
+- **Adaptive Configuration**: Works with fixed-voltage devices (like Logic 8) by correctly handling threshold settings.
 
-## Requirements
+## Prerequisites
 
-- Python 3.10 or higher
-- Saleae Logic 2 software installed
-- Python-saleae module
-- Logic 2 device (Logic 16, Logic Pro 8, etc.)
+1.  **Saleae Logic 2 Software**: Must be installed and running.
+    *   [Download Logic 2](https://www.saleae.com/downloads/)
+2.  **Enable Automation**:
+    *   Open Logic 2.
+    *   Go to **Preferences** > **Salese Logic 2** (or "Automation").
+    *   Enable **"Enable scripting socket server"**.
+    *   Keep the default port **10430**.
 
 ## Installation
 
-1. Clone the repository
+This project uses `uv` for dependency management, but standard `pip` works too.
 
-2. Create and activate a virtual environment using uv:
-```bash
-# Create virtual environment
-uv venv
+### Using `uv` (Recommended)
 
-# Activate virtual environment
-# On Windows:
-.venv\Scripts\activate
-# On Unix/MacOS:
-source .venv/bin/activate
-```
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/wegitor/logic-analyzer-ai-mcp.git
+    cd logic-analyzer-ai-mcp
+    ```
 
-3. Install dependencies using uv:
-```bash
-# Install all dependencies
-uv pip install -e .
-```
+2.  Create a virtual environment and sync dependencies:
+    ```bash
+    uv venv
+    uv sync
+    ```
 
-If you encounter any issues with dependencies, you can try installing them directly:
-```bash
-# Install logic2-automation from GitHub
-uv pip install git+https://github.com/saleae/logic2-automation/#subdirectory=python
-
-# Install other dependencies
-uv pip install grpcio protobuf grpcio-tools saleae mcp[cli] pytest
-```
-
-Note: This project requires Python 3.10 or higher due to dependency requirements.
+3.  (Optional) Install manually if not syncing:
+    ```bash
+    uv pip install -e .
+    ```
 
 ## Usage
 
-### Running the MCP Server
+### Running the MCP Server manually
 
-To start the MCP server for remote control:
+To run the server and see available tools:
 
 ```bash
-# Using uv (recommended)
-uv --directory <project_path> run -m logic_analyzer_mcp
+# Activate virtual environment first
+.venv\Scripts\activate
+
+# Run the server with Logic 2 automation enabled
+python -m src.logic_analyzer_mcp --logic2
 ```
 
-Note: When using `uv`, make sure you have it installed and in your PATH. The `--directory` argument should point to the root directory of the project.
+### Configuration for Claude Desktop
 
-## Current compatibility & Tested Version
-
-This project is tested with [Saleae Logic 1.2.40 for Windows](https://downloads.saleae.com/logic/1.2.40/Logic%201.2.40%20(Windows).zip).
-
-- Please use this version for best compatibility.
-- Other versions may work, but are not guaranteed or officially supported by this project.
-
-## Experimental note (alpha)
-
-This is an experimental (alpha) version. The following MCP tool sequence has been tested and works for me:
-
-1. saleae_connect (for Saleae Logic 1.2.40)
-2. saleae_configure
-3. saleae_capture — save capture in .logicdata format
-4. parse_capture_file (optional)
-5. get_digital_data_mcp
-6. saleae_export (optional. use csv if needed)
-
-Notes:
-- Make sure the Saleae Logic application is running and the scripting socket server is enabled before using these tools.
-- When calling saleae_capture, request the .logicdata format for best compatibility with the controller methods.
-
-## Troubleshooting & Important Notes
-
-- **Logic Software Must Be Running:**
-  - Before using this automation interface, ensure that the Saleae Logic software is already running on your system. The automation scripts will attempt to connect to the running instance.
-  - If the software is not running, the script may fail to connect, or may launch a new instance in simulation mode (which will not detect your real device).
-
-- **Enable Scripting Socket Server:**
-  - In the Logic software, go to `Options` > `Preferences` (or `Edit` > `Preferences`), and ensure that the "Enable scripting socket server" option is checked.
-  - The default port is usually 10429. If you change this, update your scripts accordingly.
-  - If the scripting server is not enabled, the Python API will not be able to communicate with Logic, and you will see connection errors.
-
-- **Device Not Detected:**
-  - Make sure your Logic device is connected to your computer and recognized by the Logic software before running any scripts.
-  - If the device is not detected, check your USB connection and try restarting the Logic software.
-
-- **Architecture Compatibility:**
-  - Ensure that both the Logic software and your Python environment are either both 32-bit or both 64-bit. Mismatched architectures can cause connection failures.
-
-- **Permissions:**
-  - On some systems, you may need to run the Logic software and/or your Python script with administrator privileges to allow socket communication.
-
-- **Supported Versions:**
-  - This project is designed for Saleae Logic 1.x/2.x automation. Some features may only be available in Logic 2.x with the appropriate automation API installed.
-
-### Note on Capture File Formats
-
-- **.logicdata format** is the recommended and best-supported file format for captures. All automation and parsing features are designed to work reliably with `.logicdata` files.
-- **.sal files** (used by some older or alternative Saleae software) are currently known to have bugs and compatibility issues. Automated conversion or processing of `.sal` files may fail or require manual fixes. For best results, always use `.logicdata` format for your captures.
-
-## API Reference
-
-### SaleaeController
-
-The main controller class that provides high-level access to Logic 2 functionality.
-
-#### Device Configuration Methods:
-
-- `create_device_config(name: str, digital_channels: List[int], digital_sample_rate: int, analog_channels: Optional[List[int]] = None, analog_sample_rate: Optional[int] = None, digital_threshold_volts: Optional[float] = None) -> str`
-  - Creates a new device configuration with specified channels and sample rates
-  - Returns the configuration name
-
-- `get_device_config(name: str) -> Optional[LogicDeviceConfiguration]`
-  - Retrieves a device configuration by name
-  - Returns None if not found
-
-- `list_device_configs() -> List[str]`
-  - Lists all available device configuration names
-
-- `remove_device_config(name: str) -> bool`
-  - Removes a device configuration
-  - Returns True if successful, False if not found
-
-#### Capture Configuration Methods:
-
-- `create_capture_config(name: str, duration_seconds: float, buffer_size_megabytes: Optional[int] = None) -> str`
-  - Creates a new capture configuration with specified duration
-  - Returns the configuration name
-
-- `get_capture_config(name: str) -> Optional[CaptureConfiguration]`
-  - Retrieves a capture configuration by name
-  - Returns None if not found
-
-- `list_capture_configs() -> List[str]`
-  - Lists all available capture configuration names
-
-- `remove_capture_config(name: str) -> bool`
-  - Removes a capture configuration
-  - Returns True if successful, False if not found
-
-
-## Configurations:
-
-### Claude configuration (with uv run):
-```json
-{
-    "mcpServers": {
-        "logic-analyzer-ai-mcp": {
-            "type": "stdio",
-            "command": "uv",
-            "args": [
-                "--directory",
-                "<path to folder>",
-                "run",
-                "-m",
-                "logic_analyzer_mcp"
-            ]
-        }
-    }
-}
-```
-
-### Claude configuration (direct usage):
-```json
-{
-    "mcpServers": {
-        "logic-analyzer-ai-mcp": {
-            "type": "stdio",
-            "command": "python",
-            "args": [
-                "<path to folder>\\src\\logic_analyzer_mcp.py"
-            ]
-        }
-    }
-}
-```
-
-
-### Claude configuration (with uv run):
-```json
-{
-    "mcpServers": {
-        "logic-analyzer-ai-mcp": {
-            "type": "stdio",
-            "command": "uv",
-            "args": [
-                "--directory",
-                "<path to folder>",
-                "run",
-                "-m",
-                "logic_analyzer_mcp"
-            ]
-        }
-    }
-}
-```
-
-## Logic2 parameter description
-
-This project includes an opt-in experimental path for Logic2 automation. It is disabled by default. You can enable it in one of three ways:
-
-- CLI flag (recommended for one-off runs)
-  - Example:
-    - python -m logic_analyzer_mcp --logic2
-
-- Environment variable (convenient for CI / persistent shells)
-  - Example (Unix):
-    - LOGIC2=1 python -m logic_analyzer_mcp
-  - Example (Windows PowerShell):
-    - $env:LOGIC2='1'; python -m logic_analyzer_mcp
-
-- Programmatic API (when embedding the library)
-  - Call the helper before registering tools:
-    - from mcp_tools import set_logic2_enabled, setup_mcp_tools
-    - set_logic2_enabled(True)
-    - setup_mcp_tools(mcp, controller)
-  - Or pass the explicit parameter to setup_mcp_tools:
-    - setup_mcp_tools(mcp, controller, enable_logic2=True)
-
-Notes
-- Default behavior: Logic2 experimental features are OFF. When disabled the code prefers controller-based or offline fallbacks.
-- Safety: Experimental features may change — enable intentionally and test with your environment before using in production.
-- Troubleshooting: If enabling Logic2 fails, check that the logic2-automation / python-saleae packages are installed and that the Saleae app is running and reachable.
-
-## Claude configuration (example)
-
-Below is a minimal Claude MCP server configuration example you can adapt. Place this under your Claude configuration file or tooling settings.
+To use this with Claude Desktop, add the following to your config file:
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **Mac**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 ```json
 {
   "mcpServers": {
-    "logic-analyzer-ai-mcp": {
-      "type": "stdio",
-      "command": "uv",
+    "saleae_logic": {
+      "command": "c:\\path\\to\\logic-analyzer-ai-mcp\\.venv\\Scripts\\python.exe",
       "args": [
-        "--directory",
-        "<path to folder>",
-        "run",
-        "-m",
-        "logic_analyzer_mcp",
+        "c:\\path\\to\\logic-analyzer-ai-mcp\\src\\logic_analyzer_mcp.py",
         "--logic2"
       ]
     }
   }
 }
 ```
+*Note: Replace `c:\\path\\to\\...` with the actual absolute path to your project folder.*
 
-Notes:
-- Remove the `--logic2` flag if you do not want experimental Logic2 tools enabled.
-- Adjust `<path to folder>` and other `uv` arguments to match your environment.
-- Use the `python` based configuration if you prefer to invoke the module directly instead of via `uv`.
+## Available Tools
+
+Once connected, the AI assistant will have access to tools like:
+
+- `logic2_reconnect`: Connect to the running Saleae software.
+- `get_available_devices`: List connected hardware or simulation devices.
+- `create_device_config`: Set up channels and sample rates.
+- `capture_and_analyze_digital`: One-shot capture + frequency/duty cycle analysis.
+- `capture_and_analyze_analog`: One-shot capture + voltage statistics.
+- `start_capture` / `wait_capture` / `save_capture`: Granular control over the capture workflow.
+- `start_capture_with_trigger`: Wait for a digital event (e.g. Rising Edge) before capturing.
+- `add_protocol_analyzer`: Add decoders like Serial, I2C, SPI to the capture.
+- `export_analyzer_data`: Export decoded text data to CSV.
+
+## Advanced Usage Examples
+
+### Using Digital Triggers
+To capture only when a specific event happens:
+1.  Configure device (`create_device_config`).
+2.  Start trigger capture:
+    ```python
+    # Example: Wait for Rising Edge on Channel 0, then record 1 second
+    start_capture_with_trigger(
+        device_config_name="my_config",
+        trigger_channel_index=0,
+        trigger_type="RISING",
+        after_trigger_seconds=1.0
+    )
+    ```
+
+### Protocol Decoding (e.g. Serial)
+To decode UART/Serial data and export the text:
+1.  Perform a capture (standard or triggered).
+2.  Add an analyzer:
+    ```python
+    add_protocol_analyzer(
+        name="Async Serial",
+        label="MySerial",
+        settings={
+            "Input Channel": 0,
+            "Bit Rate": 115200
+        }
+    )
+    ```
+3.  Export the decoded table:
+    ```python
+    export_analyzer_data(
+        filepath="C:\\temp\\serial_data.csv",
+        analyzer_label="MySerial"
+    )
+    ```
+
+## Troubleshooting
+
+- **"Connection Refused"**: Ensure Logic 2 is running and the scripting server is enabled on port 10430.
+- **"Threshold Error"**: If using Logic 8 (which doesn't support variable thresholds), ensure you don't pass a `digital_threshold_volts` value (the tool handles this automatically now).
+
+## License
+
+[MIT](LICENSE)

@@ -1,636 +1,406 @@
-from mcp import types
-from mcp.server.fastmcp import FastMCP, Context
+﻿from mcp.server.fastmcp import FastMCP, Context
 from typing import Optional, Dict, Any, List, Union
-from saleae.automation import DeviceType
-from saleae import Saleae
 import os
 import json
 import time
 import logging
-
-# Use shared saleae manager for instance creation/caching
-from logic_analyzer_mcp.saleae_manager import get_saleae
+import csv
+import statistics
 
 logger = logging.getLogger(__name__)
 
-# Try to import DeviceType if available
-try:
-    from saleae.automation import DeviceType
-except Exception:
-    DeviceType = None
-
 def setup_mcp_tools_experimental(mcp: FastMCP, controller=None) -> None:
+    """Setup Logic 2 automation MCP tools."""
 
-    controller_instance = controller
+    @mcp.tool("logic2_reconnect")
+    def logic2_reconnect(ctx: Context, port: int = 10430) -> Dict[str, Any]:
+        """Connect (or reconnect) to Logic 2 automation server.
+        Must be called before any capture or device query.
+        Logic 2 must be running with automation enabled (Preferences > Enable scripting API)."""
+        try:
+            ok = controller.reconnect(port=port)
+            if ok:
+                return {"status": "success", "message": f"Connected to Logic 2 on port {port}"}
+            return {"status": "error", "message": "Failed to connect. Is Logic 2 running with automation enabled?"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
 
-    # if controller is not None:
     @mcp.tool("create_device_config")
-    def create_device_config(ctx: Context, 
-                            name: str,
-                            digital_channels: List[int],
-                            digital_sample_rate: int,
-                            analog_channels: Optional[List[int]] = None,
+    def create_device_config(ctx: Context, name: str, digital_channels: List[int],
+                            digital_sample_rate: int, analog_channels: Optional[List[int]] = None,
                             analog_sample_rate: Optional[int] = None,
                             digital_threshold_volts: Optional[float] = None) -> Dict[str, Any]:
         """Create a new device configuration for Saleae Logic 2."""
         try:
-            config_name = controller.create_device_config(
-                name=name,
-                digital_channels=digital_channels,
-                digital_sample_rate=digital_sample_rate,
-                analog_channels=analog_channels,
-                analog_sample_rate=analog_sample_rate,
-                digital_threshold_volts=digital_threshold_volts
-            )
-            return {"status": "success", "message": f"Created device configuration: {config_name}"}
+            n = controller.create_device_config(name=name, digital_channels=digital_channels,
+                digital_sample_rate=digital_sample_rate, analog_channels=analog_channels,
+                analog_sample_rate=analog_sample_rate, digital_threshold_volts=digital_threshold_volts)
+            return {"status": "success", "config": n}
         except Exception as e:
-            return {"status": "error", "message": f"Failed to create device configuration: {str(e)}"}
+            return {"status": "error", "message": str(e)}
 
     @mcp.tool("create_capture_config")
-    def create_capture_config(ctx: Context,
-                            name: str,
-                            duration_seconds: float,
+    def create_capture_config(ctx: Context, name: str, duration_seconds: float,
                             buffer_size_megabytes: Optional[int] = None) -> Dict[str, Any]:
         """Create a new capture configuration for Saleae Logic 2."""
         try:
-            config_name = controller.create_capture_config(
-                name=name,
-                duration_seconds=duration_seconds,
-                buffer_size_megabytes=buffer_size_megabytes
-            )
-            return {"status": "success", "message": f"Created capture configuration: {config_name}"}
+            n = controller.create_capture_config(name=name, duration_seconds=duration_seconds,
+                buffer_size_megabytes=buffer_size_megabytes)
+            return {"status": "success", "config": n}
         except Exception as e:
-            return {"status": "error", "message": f"Failed to create capture configuration: {str(e)}"}
+            return {"status": "error", "message": str(e)}
+
+    @mcp.tool("list_device_configs")
+    def list_device_configs(ctx: Context) -> Dict[str, Any]:
+        """List all available device configurations."""
+        return {"status": "success", "configs": controller.list_device_configs()}
+
+    @mcp.tool("list_capture_configs")
+    def list_capture_configs(ctx: Context) -> Dict[str, Any]:
+        """List all available capture configurations."""
+        return {"status": "success", "configs": controller.list_capture_configs()}
+
+    @mcp.tool("remove_device_config")
+    def remove_device_config(ctx: Context, name: str) -> Dict[str, Any]:
+        """Remove a device configuration."""
+        ok = controller.remove_device_config(name)
+        return {"status": "success" if ok else "error"}
+
+    @mcp.tool("remove_capture_config")
+    def remove_capture_config(ctx: Context, name: str) -> Dict[str, Any]:
+        """Remove a capture configuration."""
+        ok = controller.remove_capture_config(name)
+        return {"status": "success" if ok else "error"}
 
     @mcp.tool("get_available_devices")
     def get_available_devices(ctx: Context) -> Dict[str, Any]:
         """Get list of available Saleae Logic devices."""
         try:
-            devices = controller.get_available_devices()
-            return {"status": "success", "devices": devices}
+            return {"status": "success", "devices": controller.get_available_devices()}
         except Exception as e:
-            return {"status": "error", "message": f"Failed to get available devices: {str(e)}"}
+            return {"status": "error", "message": str(e)}
 
     @mcp.tool("find_device_by_type")
     def find_device_by_type(ctx: Context, device_type: str) -> Dict[str, Any]:
         """Find a Saleae Logic device by its type."""
         try:
-            device = controller.find_device_by_type(DeviceType[device_type])
-            if device:
-                return {"status": "success", "device": device}
-            return {"status": "error", "message": f"No device found of type {device_type}"}
-        except ValueError as e:
+            from saleae.automation import DeviceType
+            d = controller.find_device_by_type(DeviceType[device_type])
+            if d:
+                return {"status": "success", "device": d}
+            return {"status": "error", "message": f"No device of type {device_type}"}
+        except Exception as e:
             return {"status": "error", "message": str(e)}
-        except Exception as e:
-            return {"status": "error", "message": f"Failed to find device: {str(e)}"}
+    # ── Capture Workflow ────────────────────────────────────────
 
-    @mcp.tool("list_device_configs")
-    def list_device_configs(ctx: Context) -> Dict[str, Any]:
-        """List all available device configurations."""
+    @mcp.tool("start_capture")
+    def start_capture(ctx: Context, device_config_name: str,
+                     capture_config_name: str,
+                     device_id: Optional[str] = None) -> Dict[str, Any]:
+        """Start a capture using named device and capture configurations."""
         try:
-            configs = controller.list_device_configs()
-            return {"status": "success", "configurations": configs}
+            controller.start_capture(device_config_name, capture_config_name, device_id)
+            return {"status": "success", "message": "Capture started"}
         except Exception as e:
-            return {"status": "error", "message": f"Failed to list device configurations: {str(e)}"}
+            return {"status": "error", "message": str(e)}
 
-    @mcp.tool("list_capture_configs")
-    def list_capture_configs(ctx: Context) -> Dict[str, Any]:
-        """List all available capture configurations."""
+    @mcp.tool("wait_capture")
+    def wait_capture(ctx: Context) -> Dict[str, Any]:
+        """Wait for the active capture to complete."""
         try:
-            configs = controller.list_capture_configs()
-            return {"status": "success", "configurations": configs}
+            controller.wait_capture()
+            return {"status": "success", "message": "Capture complete"}
         except Exception as e:
-            return {"status": "error", "message": f"Failed to list capture configurations: {str(e)}"}
+            return {"status": "error", "message": str(e)}
 
-    @mcp.tool("remove_device_config")
-    def remove_device_config(ctx: Context, name: str) -> Dict[str, Any]:
-        """Remove a device configuration."""
+    @mcp.tool("save_capture")
+    def save_capture(ctx: Context, filepath: str) -> Dict[str, Any]:
+        """Save the active capture to a .sal file."""
         try:
-            if controller.remove_device_config(name):
-                return {"status": "success", "message": f"Removed device configuration: {name}"}
-            return {"status": "error", "message": f"Device configuration {name} not found"}
+            os.makedirs(os.path.dirname(filepath) or '.', exist_ok=True)
+            controller.save_capture(filepath)
+            return {"status": "success", "filepath": filepath}
         except Exception as e:
-            return {"status": "error", "message": f"Failed to remove device configuration: {str(e)}"}
+            return {"status": "error", "message": str(e)}
 
-    @mcp.tool("remove_capture_config")
-    def remove_capture_config(ctx: Context, name: str) -> Dict[str, Any]:
-        """Remove a capture configuration."""
+    @mcp.tool("close_capture")
+    def close_capture(ctx: Context) -> Dict[str, Any]:
+        """Close the active capture and free resources."""
         try:
-            if controller.remove_capture_config(name):
-                return {"status": "success", "message": f"Removed capture configuration: {name}"}
-            return {"status": "error", "message": f"Capture configuration {name} not found"}
+            controller.close_capture()
+            return {"status": "success"}
         except Exception as e:
-            return {"status": "error", "message": f"Failed to remove capture configuration: {str(e)}"}
+            return {"status": "error", "message": str(e)}
 
-    @mcp.tool("get_digital_data")
-    def get_digital_data(ctx: Context, 
-                        capture_file: Optional[str] = None,
-                        data: Optional[List[Dict[str, Union[float, bool]]]] = None,
-                        channel: int = 0,
-                        start_time: Optional[float] = None,
-                        end_time: Optional[float] = None) -> Dict[str, Any]:
-        """
-        Get digital data for a specific channel.
-        
+    @mcp.tool("export_raw_data_csv")
+    def export_raw_data_csv(ctx: Context, directory: str,
+                           analog_channels: Optional[List[int]] = None,
+                           digital_channels: Optional[List[int]] = None) -> Dict[str, Any]:
+        """Export raw capture data to CSV. Requires active completed capture."""
+        try:
+            if controller._active_capture is None:
+                return {"status": "error", "message": "No active capture."}
+            os.makedirs(directory, exist_ok=True)
+            controller._active_capture.export_raw_data_csv(
+                directory=directory,
+                analog_channels=analog_channels,
+                digital_channels=digital_channels)
+            files = os.listdir(directory)
+            return {"status": "success", "directory": directory, "files": files}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    # ── One-Shot Capture + Analyze Analog ───────────────────────
+
+    @mcp.tool("capture_and_analyze_analog")
+    def capture_and_analyze_analog(ctx: Context,
+                                   analog_channels: List[int],
+                                   duration_seconds: float,
+                                   sample_rate: int = 625000,
+                                   output_directory: Optional[str] = None) -> Dict[str, Any]:
+        """One-shot: capture and analyze analog channels.
+        Returns min/max/mean/stdev/peak-to-peak for each channel.
+
         Args:
-            capture_file: Path to the capture file (optional)
-            data: Direct data list of transitions (optional)
-            channel: Channel number
-            start_time: Start time in seconds (optional)
-            end_time: End time in seconds (optional)
+            analog_channels: e.g. [0] or [0,1]
+            duration_seconds: capture length in seconds
+            sample_rate: analog sample rate in S/s (default 625000)
+            output_directory: where to save CSV (default: temp dir)
         """
         try:
-            if data is not None:
-                # Filter data by time range if specified
-                if start_time is not None:
-                    data = [d for d in data if d['time'] >= start_time]
-                if end_time is not None:
-                    data = [d for d in data if d['time'] <= end_time]
-                return {
-                    "status": "success",
-                    "data": data
-                }
-            elif capture_file is not None:
-                if not os.path.exists(capture_file):
-                    return {"status": "error", "message": f"Capture file not found: {capture_file}"}
-                
-                # Get Saleae instance
-                saleae_instance = get_saleae()
-                if saleae_instance is None:
-                    return {
-                        "status": "success",
-                        "file_info": {
-                            "path": capture_file,
-                            "format": "Saleae Logic (.sal)",
-                            "size": os.path.getsize(capture_file),
-                            "modified": os.path.getmtime(capture_file)
-                        }
-                    }
-                
-                try:
-                    # Load the capture file using Saleae API
-                    capture = saleae_instance.load_capture(capture_file)
-                    
-                    # Get digital data for the specified channel
-                    digital_data = capture.get_digital_data(channel, start_time, end_time)
-                    
-                    # Convert to list of dictionaries
-                    data = [
-                        {
-                            "time": point.time,
-                            "value": point.value
-                        }
-                        for point in digital_data
-                    ]
-                    
-                    return {
-                        "status": "success",
-                        "channel": channel,
-                        "data": data,
-                        "total_samples": len(data)
-                    }
-                except Exception as e:
-                    return {
-                        "status": "error",
-                        "message": f"Failed to get digital data: {str(e)}"
-                    }
-            else:
-                return {"status": "error", "message": "Either capture_file or data must be provided"}
-        except Exception as e:
-            return {"status": "error", "message": f"Failed to get digital data: {str(e)}"}
-
-    @mcp.tool("get_analog_data")
-    def get_analog_data(ctx: Context,
-                    capture_file: Optional[str] = None,
-                    data: Optional[List[Dict[str, Union[float, float]]]] = None,
-                    channel: int = 0,
-                    start_time: Optional[float] = None,
-                    end_time: Optional[float] = None) -> Dict[str, Any]:
-        """
-        Get analog data for a specific channel.
-        
-        Args:
-            capture_file: Path to the capture file (optional)
-            data: Direct data list of readings (optional)
-            channel: Channel number
-            start_time: Start time in seconds (optional)
-            end_time: End time in seconds (optional)
-        """
-        try:
-            if data is not None:
-                # Filter data by time range if specified
-                if start_time is not None:
-                    data = [d for d in data if d['time'] >= start_time]
-                if end_time is not None:
-                    data = [d for d in data if d['time'] <= end_time]
-                return {
-                    "status": "success",
-                    "data": data
-                }
-            elif capture_file is not None:
-                if not os.path.exists(capture_file):
-                    raise FileNotFoundError(f"Capture file not found: {capture_file}")
-                saleae_instance = get_saleae()
-                if saleae_instance is None:
-                    return {"status": "error", "message": "Saleae instance not available"}
-                data = saleae_instance.get_analog_data(capture_file, channel, start_time, end_time)
-                return {
-                    "status": "success",
-                    "data": data
-                }
-            else:
-                return {"status": "error", "message": "Either capture_file or data must be provided"}
-        except Exception as e:
-            return {"status": "error", "message": f"Failed to get analog data: {str(e)}"}
-            
-    @mcp.tool("export_digital_data")
-    def export_digital_data(ctx: Context,
-                        output_file: str,
-                        capture_file: Optional[str] = None,
-                        data: Optional[List[Dict[str, Union[float, bool]]]] = None,
-                        channels: Optional[List[int]] = None,
-                        start_time: Optional[float] = None,
-                        end_time: Optional[float] = None) -> Dict[str, Any]:
-        """
-        Export digital data to a CSV file.
-        
-        Args:
-            output_file: Path to output CSV file
-            capture_file: Path to the capture file (optional)
-            data: Direct data list of transitions (optional)
-            channels: List of channels to export (optional)
-            start_time: Start time in seconds (optional)
-            end_time: End time in seconds (optional)
-        """
-        try:
-            if data is not None:
-                # Filter data by time range if specified
-                if start_time is not None:
-                    data = [d for d in data if d['time'] >= start_time]
-                if end_time is not None:
-                    data = [d for d in data if d['time'] <= end_time]
-                # Export to CSV
-                with open(output_file, 'w') as f:
-                    f.write("Time,Value\n")
-                    for entry in data:
-                        f.write(f"{entry['time']},{entry['value']}\n")
-                return {
-                    "status": "success",
-                    "message": f"Exported digital data to {output_file}"
-                }
-            elif capture_file is not None:
-                if not os.path.exists(capture_file):
-                    raise FileNotFoundError(f"Capture file not found: {capture_file}")
-                saleae_instance = get_saleae()
-                if saleae_instance is None:
-                    return {"status": "error", "message": "Saleae instance not available"}
-                saleae_instance.export_digital_data(capture_file, output_file, channels, start_time, end_time)
-                return {
-                    "status": "success",
-                    "message": f"Exported digital data to {output_file}"
-                }
-            else:
-                return {"status": "error", "message": "Either capture_file or data must be provided"}
-        except Exception as e:
-            return {"status": "error", "message": f"Failed to export digital data: {str(e)}"}
-            
-    @mcp.tool("export_analog_data")
-    def export_analog_data(ctx: Context,
-                        output_file: str,
-                        capture_file: Optional[str] = None,
-                        data: Optional[List[Dict[str, Union[float, float]]]] = None,
-                        channels: Optional[List[int]] = None,
-                        start_time: Optional[float] = None,
-                        end_time: Optional[float] = None) -> Dict[str, Any]:
-        """
-        Export analog data to a CSV file.
-        
-        Args:
-            output_file: Path to output CSV file
-            capture_file: Path to the capture file (optional)
-            data: Direct data list of readings (optional)
-            channels: List of channels to export (optional)
-            start_time: Start time in seconds (optional)
-            end_time: End time in seconds (optional)
-        """
-        try:
-            if data is not None:
-                # Filter data by time range if specified
-                if start_time is not None:
-                    data = [d for d in data if d['time'] >= start_time]
-                if end_time is not None:
-                    data = [d for d in data if d['time'] <= end_time]
-                # Export to CSV
-                with open(output_file, 'w') as f:
-                    f.write("Time,Voltage\n")
-                    for entry in data:
-                        f.write(f"{entry['time']},{entry['voltage']}\n")
-                return {
-                    "status": "success",
-                    "message": f"Exported analog data to {output_file}"
-                }
-            elif capture_file is not None:
-                if not os.path.exists(capture_file):
-                    raise FileNotFoundError(f"Capture file not found: {capture_file}")
-                saleae_instance = get_saleae()
-                if saleae_instance is None:
-                    return {"status": "error", "message": "Saleae instance not available"}
-                saleae_instance.export_analog_data(capture_file, output_file, channels, start_time, end_time)
-                return {
-                    "status": "success",
-                    "message": f"Exported analog data to {output_file}"
-                }
-            else:
-                return {"status": "error", "message": "Either capture_file or data must be provided"}
-        except Exception as e:
-            return {"status": "error", "message": f"Failed to export analog data: {str(e)}"}
-
-
-    # Protocol and Data Analysis tools
-    @mcp.tool("detect_protocols")
-    def detect_protocols(ctx: Context, capture_file: str) -> Dict[str, Any]:
-        """
-        Detect protocols in a capture file.
-        
-        Args:
-            capture_file: Path to the capture file
-        """
-        try:
-            if not os.path.exists(capture_file):
-                return {"status": "error", "message": f"Capture file not found: {capture_file}"}
-            
-            saleae_instance = get_saleae()
-            if saleae_instance is None:
-                return {
-                    "status": "success",
-                    "file_info": {
-                        "path": capture_file,
-                        "format": "Saleae Logic (.sal)",
-                        "size": os.path.getsize(capture_file),
-                        "modified": os.path.getmtime(capture_file)
-                    }
-                }
-            
-            # Load capture and get protocol analyzers
-            capture = saleae_instance.load_capture(capture_file)
-            analyzers = capture.get_analyzers()
-            
-            return {
-                "status": "success",
-                "protocols": [
-                    {
-                        "name": analyzer.name,
-                        "type": analyzer.type,
-                        "channels": analyzer.channels,
-                        "settings": analyzer.settings
-                    }
-                    for analyzer in analyzers
-                ]
-            }
-        except Exception as e:
-            return {"status": "error", "message": f"Failed to detect protocols: {str(e)}"}
-
-    @mcp.tool("get_protocol_data")
-    def get_protocol_data(ctx: Context, 
-                        capture_file: str,
-                        protocol_type: str,
-                        start_time: Optional[float] = None,
-                        end_time: Optional[float] = None) -> Dict[str, Any]:
-        """
-        Get protocol data from a capture file.
-        
-        Args:
-            capture_file: Path to the capture file
-            protocol_type: Type of protocol to analyze (e.g., 'I2C', 'SPI', 'UART')
-            start_time: Start time in seconds (optional)
-            end_time: End time in seconds (optional)
-        """
-        try:
-            if not os.path.exists(capture_file):
-                return {"status": "error", "message": f"Capture file not found: {capture_file}"}
-            
-            saleae_instance = get_saleae()
-            if saleae_instance is None:
-                return {
-                    "status": "success",
-                    "file_info": {
-                        "path": capture_file,
-                        "format": "Saleae Logic (.sal)",
-                        "size": os.path.getsize(capture_file),
-                        "modified": os.path.getmtime(capture_file)
-                    }
-                }
-            
-            # Load capture and get protocol analyzer
-            capture = saleae_instance.load_capture(capture_file)
-            analyzer = capture.get_analyzer(protocol_type)
-            
-            if analyzer is None:
-                return {"status": "error", "message": f"No {protocol_type} analyzer found"}
-            
-            # Get protocol data
-            data = analyzer.get_data(start_time, end_time)
-            
-            return {
-                "status": "success",
-                "protocol": protocol_type,
-                "data": [
-                    {
-                        "time": packet.time,
-                        "type": packet.type,
-                        "data": packet.data,
-                        "metadata": packet.metadata
-                    }
-                    for packet in data
-                ]
-            }
-        except Exception as e:
-            return {"status": "error", "message": f"Failed to get protocol data: {str(e)}"}
-
-    @mcp.tool("get_digital_data_batch_mcp")
-    def get_digital_data_batch_mcp(ctx: Context,
-                                capture_file: str,
-                                channels: List[int],
-                                start_time: Optional[float] = None,
-                                end_time: Optional[float] = None,
-                                max_samples: Optional[int] = None) -> Dict[str, Any]:
-        """Get digital data from multiple channels in a capture file."""
-        try:
-            from controllers.saleae_controller import SaleaeController
-            controller = SaleaeController()
-            return controller.get_digital_data_batch(
-                capture_file=capture_file,
-                channels=channels,
-                start_time=start_time,
-                end_time=end_time,
-                max_samples=max_samples
+            controller._ensure_manager()
+            from saleae.automation import (
+                LogicDeviceConfiguration, CaptureConfiguration, TimedCaptureMode
             )
-        except Exception as e:
-            return {"status": "error", "message": f"Error getting digital data: {str(e)}"}
+            dev_cfg = LogicDeviceConfiguration(
+                enabled_digital_channels=[],
+                digital_sample_rate=10_000_000,
+                enabled_analog_channels=analog_channels,
+                analog_sample_rate=sample_rate)
+            cap_cfg = CaptureConfiguration(
+                capture_mode=TimedCaptureMode(duration_seconds=duration_seconds))
 
+            capture = controller.manager.start_capture(
+                device_configuration=dev_cfg,
+                capture_configuration=cap_cfg)
+            capture.wait()
 
-    # TODO: Temporarily disabled analyze functions - will be re-enabled after Saleae API integration is complete
-    """
-    @mcp.tool("analyze_digital_data")
-    def analyze_digital_data(ctx: Context,
-                           capture_file: str,
-                           channel: int,
-                           start_time: Optional[float] = None,
-                           end_time: Optional[float] = None) -> Dict[str, Any]:
-        Analyze digital data from a capture file.
-        
-        Args:
-            capture_file: Path to the capture file
-            channel: Channel number to analyze
-            start_time: Start time in seconds (optional)
-            end_time: End time in seconds (optional)
-        try:
-            if not os.path.exists(capture_file):
-                return {"status": "error", "message": f"Capture file not found: {capture_file}"}
-            
-            saleae_instance = get_saleae()
-            if saleae_instance is None:
-                return {
-                    "status": "success",
-                    "file_info": {
-                        "path": capture_file,
-                        "format": "Saleae Logic (.sal)",
-                        "size": os.path.getsize(capture_file),
-                        "modified": os.path.getmtime(capture_file)
+            if output_directory is None:
+                import tempfile
+                output_directory = tempfile.mkdtemp(prefix="saleae_")
+            os.makedirs(output_directory, exist_ok=True)
+
+            capture.export_raw_data_csv(
+                directory=output_directory,
+                analog_channels=analog_channels)
+
+            results = {}
+            for fname in os.listdir(output_directory):
+                if not fname.endswith('.csv'):
+                    continue
+                fpath = os.path.join(output_directory, fname)
+                voltages = []
+                with open(fpath, 'r') as f:
+                    reader = csv.reader(f)
+                    next(reader, None)
+                    for row in reader:
+                        try:
+                            voltages.append(float(row[1]))
+                        except (IndexError, ValueError):
+                            continue
+                if voltages:
+                    results[fname] = {
+                        "samples": len(voltages),
+                        "min_V": round(min(voltages), 6),
+                        "max_V": round(max(voltages), 6),
+                        "mean_V": round(statistics.mean(voltages), 6),
+                        "stdev_V": round(statistics.stdev(voltages), 6) if len(voltages) > 1 else 0.0,
+                        "peak_to_peak_V": round(max(voltages) - min(voltages), 6),
                     }
-                }
-            
-            # Load capture and get digital data
-            capture = saleae_instance.load_capture(capture_file)
-            data = capture.get_digital_data(channel, start_time, end_time)
-            
-            # Analyze transitions
-            transitions = []
-            for i in range(len(data) - 1):
-                if data[i].value != data[i + 1].value:
-                    transitions.append({
-                        "time": data[i + 1].time,
-                        "from_value": data[i].value,
-                        "to_value": data[i + 1].value
-                    })
-            
+
+            sal_path = os.path.join(output_directory, "capture.sal")
+            try:
+                capture.save_capture(filepath=sal_path)
+            except Exception:
+                sal_path = None
+            capture.close()
+
             return {
                 "status": "success",
-                "channel": channel,
-                "total_samples": len(data),
-                "transitions": transitions,
-                "first_value": data[0].value if data else None,
-                "last_value": data[-1].value if data else None
+                "duration_s": duration_seconds,
+                "sample_rate": sample_rate,
+                "channels": analog_channels,
+                "analysis": results,
+                "csv_directory": output_directory,
+                "capture_file": sal_path,
             }
         except Exception as e:
-            return {"status": "error", "message": f"Failed to analyze digital data: {str(e)}"}
+            return {"status": "error", "message": str(e)}
+    # ── One-Shot Capture + Analyze Digital ──────────────────────
 
-    @mcp.tool("analyze_analog_data")
-    def analyze_analog_data(ctx: Context,
-                          capture_file: str,
-                          channel: int,
-                          start_time: Optional[float] = None,
-                          end_time: Optional[float] = None) -> Dict[str, Any]:
-        Analyze analog data from a capture file.
-        
+    @mcp.tool("capture_and_analyze_digital")
+    def capture_and_analyze_digital(ctx: Context,
+                                    digital_channels: List[int],
+                                    duration_seconds: float,
+                                    sample_rate: int = 10_000_000,
+                                    digital_threshold_volts: Optional[float] = None,
+                                    output_directory: Optional[str] = None) -> Dict[str, Any]:
+        """One-shot: capture and analyze digital channels.
+        Returns transition count, frequency estimate, duty cycle.
+
         Args:
-            capture_file: Path to the capture file
-            channel: Channel number to analyze
-            start_time: Start time in seconds (optional)
-            end_time: End time in seconds (optional)
+            digital_channels: e.g. [0,1]
+            duration_seconds: capture length in seconds
+            sample_rate: digital sample rate (default 10 MHz)
+            digital_threshold_volts: threshold (default None). Set to None for devices that don't support it (Logic 8).
+            output_directory: where to save CSV (default: temp dir)
+        """
         try:
-            if not os.path.exists(capture_file):
-                return {"status": "error", "message": f"Capture file not found: {capture_file}"}
-            
-            saleae_instance = get_saleae()
-            if saleae_instance is None:
-                return {
-                    "status": "success",
-                    "file_info": {
-                        "path": capture_file,
-                        "format": "Saleae Logic (.sal)",
-                        "size": os.path.getsize(capture_file),
-                        "modified": os.path.getmtime(capture_file)
-                    }
-                }
-            
-            # Load capture and get analog data
-            capture = saleae_instance.load_capture(capture_file)
-            data = capture.get_analog_data(channel, start_time, end_time)
-            
-            if not data:
-                return {"status": "error", "message": "No analog data found"}
-            
-            # Calculate statistics
-            values = [point.voltage for point in data]
-            min_voltage = min(values)
-            max_voltage = max(values)
-            avg_voltage = sum(values) / len(values)
-            
+            controller._ensure_manager()
+            from saleae.automation import (
+                LogicDeviceConfiguration, CaptureConfiguration, TimedCaptureMode
+            )
+            dev_cfg = LogicDeviceConfiguration(
+                enabled_digital_channels=digital_channels,
+                digital_sample_rate=sample_rate,
+                enabled_analog_channels=[],
+                digital_threshold_volts=digital_threshold_volts)
+            cap_cfg = CaptureConfiguration(
+                capture_mode=TimedCaptureMode(duration_seconds=duration_seconds))
+
+            capture = controller.manager.start_capture(
+                device_configuration=dev_cfg,
+                capture_configuration=cap_cfg)
+            capture.wait()
+
+            if output_directory is None:
+                import tempfile
+                output_directory = tempfile.mkdtemp(prefix="saleae_")
+            os.makedirs(output_directory, exist_ok=True)
+
+            capture.export_raw_data_csv(
+                directory=output_directory,
+                digital_channels=digital_channels)
+
+            results = {}
+            for fname in os.listdir(output_directory):
+                if not fname.endswith('.csv'):
+                    continue
+                fpath = os.path.join(output_directory, fname)
+                transitions = 0
+                times = []
+                values = []
+                with open(fpath, 'r') as f:
+                    reader = csv.reader(f)
+                    next(reader, None)
+                    prev_val = None
+                    for row in reader:
+                        try:
+                            t = float(row[0])
+                            v = int(row[1])
+                            times.append(t)
+                            values.append(v)
+                            if prev_val is not None and v != prev_val:
+                                transitions += 1
+                            prev_val = v
+                        except (IndexError, ValueError):
+                            continue
+                info = {"samples": len(values), "transitions": transitions}
+                if transitions >= 2 and len(times) >= 2:
+                    total_time = times[-1] - times[0]
+                    if total_time > 0:
+                        info["estimated_freq_Hz"] = round(transitions / (2 * total_time), 2)
+                if values:
+                    high_count = sum(1 for v in values if v == 1)
+                    info["duty_cycle_pct"] = round(100.0 * high_count / len(values), 2)
+                results[fname] = info
+
+            sal_path = os.path.join(output_directory, "capture.sal")
+            try:
+                capture.save_capture(filepath=sal_path)
+            except Exception:
+                sal_path = None
+            capture.close()
+
             return {
                 "status": "success",
-                "channel": channel,
-                "total_samples": len(data),
-                "min_voltage": min_voltage,
-                "max_voltage": max_voltage,
-                "avg_voltage": avg_voltage,
-                "first_value": data[0].voltage if data else None,
-                "last_value": data[-1].voltage if data else None
+                "duration_s": duration_seconds,
+                "sample_rate": sample_rate,
+                "channels": digital_channels,
+                "analysis": results,
+                "csv_directory": output_directory,
+                "capture_file": sal_path,
             }
         except Exception as e:
-            return {"status": "error", "message": f"Failed to analyze analog data: {str(e)}"}
+            return {"status": "error", "message": str(e)}
 
-    @mcp.tool("export_protocol_data")
-    def export_protocol_data(ctx: Context,
-                           output_file: str,
-                           capture_file: str,
-                           protocol_type: str,
-                           start_time: Optional[float] = None,
-                           end_time: Optional[float] = None) -> Dict[str, Any]:
-        Export protocol data to a CSV file.
+    # ── Advanced Trigger & Protocol Tools ───────────────────────
+
+    @mcp.tool("start_capture_with_trigger")
+    def start_capture_with_trigger(ctx: Context,
+                                   device_config_name: str,
+                                   trigger_channel_index: int,
+                                   trigger_type: str,
+                                   after_trigger_seconds: float = 5.0,
+                                   trim_data_seconds: Optional[float] = None,
+                                   device_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Start a capture that waits for a digital trigger.
         
         Args:
-            output_file: Path to output CSV file
-            capture_file: Path to the capture file
-            protocol_type: Type of protocol to analyze
-            start_time: Start time in seconds (optional)
-            end_time: End time in seconds (optional)
+            device_config_name: Name of the device configuration
+            trigger_channel_index: The digital channel index to trigger on
+            trigger_type: 'RISING', 'FALLING', 'PULSE_HIGH', 'PULSE_LOW'
+            after_trigger_seconds: How much data to capture after the trigger
+            trim_data_seconds: Optional duration to keep (similar to regular capture duration). If None, keeps all data.
+            after_trigger_seconds defines how long to record *after* the trigger event.
+        """
         try:
-            if not os.path.exists(capture_file):
-                return {"status": "error", "message": f"Capture file not found: {capture_file}"}
-            
-            saleae_instance = get_saleae()
-            if saleae_instance is None:
-                return {
-                    "status": "success",
-                    "file_info": {
-                        "path": capture_file,
-                        "format": "Saleae Logic (.sal)",
-                        "size": os.path.getsize(capture_file),
-                        "modified": os.path.getmtime(capture_file)
-                    }
-                }
-            
-            # Load capture and get protocol analyzer
-            capture = saleae_instance.load_capture(capture_file)
-            analyzer = capture.get_analyzer(protocol_type)
-            
-            if analyzer is None:
-                return {"status": "error", "message": f"No {protocol_type} analyzer found"}
-            
-            # Get protocol data
-            data = analyzer.get_data(start_time, end_time)
-            
-            # Export to CSV
-            with open(output_file, 'w') as f:
-                f.write("Time,Type,Data,Metadata\n")
-                for packet in data:
-                    f.write(f"{packet.time},{packet.type},{packet.data},{packet.metadata}\n")
-            
-            return {
-                "status": "success",
-                "message": f"Exported {protocol_type} data to {output_file}"
-            }
+            # Call controller method
+            # Note: trim_data_seconds is optional in Logic 2 API
+            res = controller.start_capture_with_trigger(
+                device_config_name=device_config_name,
+                trigger_channel_index=trigger_channel_index,
+                trigger_type=trigger_type,
+                after_trigger_seconds=after_trigger_seconds,
+                trim_data_seconds=trim_data_seconds,
+                device_id=device_id
+            )
+            return {"status": "success", "message": "Capture started with trigger", "details": res}
         except Exception as e:
-            return {"status": "error", "message": f"Failed to export protocol data: {str(e)}"}
-    """
+            return {"status": "error", "message": str(e)}
+
+    @mcp.tool("add_protocol_analyzer")
+    def add_protocol_analyzer(ctx: Context,
+                              name: str,
+                              label: str,
+                              settings: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Add a protocol analyzer (decoder) to the active capture.
+        
+        Args:
+            name: The analyzer type name (e.g. 'Async Serial', 'I2C', 'SPI')
+            label: A unique name for this analyzer instance
+            settings: Dictionary of settings (e.g. {'Input Channel': 0, 'Bit Rate': 115200})
+        """
+        try:
+            lbl = controller.add_analyzer(analyzer_name=name, label=label, settings=settings)
+            return {"status": "success", "label": lbl}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    @mcp.tool("export_analyzer_data")
+    def export_analyzer_data(ctx: Context,
+                             filepath: str,
+                             analyzer_label: str) -> Dict[str, Any]:
+        """
+        Export decoded data from a protocol analyzer to CSV.
+        
+        Args:
+            filepath: Destination file path
+            analyzer_label: The label given when adding the analyzer
+        """
+        try:
+            res = controller.export_analyzer_data(filepath=filepath, analyzer_label=analyzer_label)
+            return {"status": "success", "filepath": res["filepath"]}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
