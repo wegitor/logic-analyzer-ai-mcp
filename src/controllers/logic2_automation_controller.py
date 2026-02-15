@@ -1,20 +1,37 @@
-from typing import List, Optional, Dict
+﻿from typing import List, Optional, Dict
 from saleae.automation import Manager, LogicDeviceConfiguration, CaptureConfiguration, TimedCaptureMode, DeviceType
+import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 class Logic2AutomationController:
     """Controller for managing Logic 2 automation device configurations and captures."""
     
-    def __init__(self, manager: Manager):
-        """
-        Initialize the Logic 2 automation controller.
-        
-        Args:
-            manager (Manager): Logic 2 automation manager instance
-        """
+    def __init__(self, manager: Optional[Manager] = None):
         self.manager = manager
         self._device_configs: Dict[str, LogicDeviceConfiguration] = {}
         self._capture_configs: Dict[str, CaptureConfiguration] = {}
+        self._active_capture = None
         
+    def _ensure_manager(self):
+        """Check that manager is connected, raise clear error if not."""
+        if self.manager is None:
+            raise ConnectionError(
+                "Not connected to Logic 2. Make sure Logic 2 is running with "
+                "automation enabled (Preferences > Enable automation, or launch with --automation flag)"
+            )
+    
+    def reconnect(self, port=10430, timeout=5.0) -> bool:
+        """Attempt to (re)connect to Logic 2."""
+        try:
+            self.manager = Manager.connect(port=port, address='127.0.0.1', connect_timeout_seconds=timeout)
+            logger.info(f"Connected to Logic 2 on port {port}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to connect to Logic 2: {e}")
+            return False
+
     def create_device_config(self, 
                            name: str,
                            digital_channels: List[int],
@@ -22,20 +39,6 @@ class Logic2AutomationController:
                            analog_channels: Optional[List[int]] = None,
                            analog_sample_rate: Optional[int] = None,
                            digital_threshold_volts: Optional[float] = None) -> str:
-        """
-        Create a new device configuration.
-        
-        Args:
-            name (str): Name for the configuration
-            digital_channels (List[int]): List of digital channels to enable
-            digital_sample_rate (int): Digital sample rate in Hz
-            analog_channels (List[int], optional): List of analog channels to enable
-            analog_sample_rate (int, optional): Analog sample rate in Hz
-            digital_threshold_volts (float, optional): Digital threshold voltage
-            
-        Returns:
-            str: Configuration name
-        """
         config = LogicDeviceConfiguration(
             enabled_digital_channels=digital_channels,
             digital_sample_rate=digital_sample_rate,
@@ -50,17 +53,6 @@ class Logic2AutomationController:
                             name: str,
                             duration_seconds: float,
                             buffer_size_megabytes: Optional[int] = None) -> str:
-        """
-        Create a new capture configuration.
-        
-        Args:
-            name (str): Name for the configuration
-            duration_seconds (float): Capture duration in seconds
-            buffer_size_megabytes (int, optional): Buffer size in MB
-            
-        Returns:
-            str: Configuration name
-        """
         config = CaptureConfiguration(
             capture_mode=TimedCaptureMode(duration_seconds=duration_seconds),
             buffer_size_megabytes=buffer_size_megabytes
@@ -69,71 +61,108 @@ class Logic2AutomationController:
         return name
         
     def get_device_config(self, name: str) -> Optional[LogicDeviceConfiguration]:
-        """Get a device configuration by name."""
         return self._device_configs.get(name)
         
     def get_capture_config(self, name: str) -> Optional[CaptureConfiguration]:
-        """Get a capture configuration by name."""
         return self._capture_configs.get(name)
         
     def list_device_configs(self) -> List[str]:
-        """List all available device configurations."""
         return list(self._device_configs.keys())
         
     def list_capture_configs(self) -> List[str]:
-        """List all available capture configurations."""
         return list(self._capture_configs.keys())
         
     def remove_device_config(self, name: str) -> bool:
-        """Remove a device configuration."""
         if name in self._device_configs:
             del self._device_configs[name]
             return True
         return False
         
     def remove_capture_config(self, name: str) -> bool:
-        """Remove a capture configuration."""
         if name in self._capture_configs:
             del self._capture_configs[name]
             return True
         return False
         
     def get_available_devices(self) -> List[Dict]:
-        """
-        Get list of available Logic devices.
-        
-        Returns:
-            List[Dict]: List of device information dictionaries with masked device IDs
-        """
-        devices = self.manager.get_devices()
+        self._ensure_manager()
+        devices = self.manager.get_devices(include_simulation_devices=True)
         return [
             {
-                'id': f"{device.device_id[:4]}...{device.device_id[-4:]}" if len(device.device_id) > 8 else "****",
-                'type': device.device_type,
+                'id': str(device.device_id),
+                'type': str(device.device_type),
                 'is_simulation': device.is_simulation
             }
             for device in devices
         ]
         
     def find_device_by_type(self, device_type: DeviceType) -> Optional[Dict]:
-        """
-        Find a device by its type.
-        
-        Args:
-            device_type (DeviceType): Type of device to find
-            
-        Returns:
-            Optional[Dict]: Device information if found, None otherwise
-            
-        Raises:
-            ValueError: If the device type is not supported
-        """
-        # Check if device type is supported
-        if device_type in [DeviceType.LOGIC, DeviceType.LOGIC_4, DeviceType.LOGIC_16]:
-            raise ValueError(f"Device type {device_type.name} is not supported by Logic 2 software")
-            
+        self._ensure_manager()
         devices = self.get_available_devices()
         for device in devices:
-            if device['type'] == device_type:
+            if device['type'] == str(device_type):
                 return device
         return None
+
+    def start_capture(self, 
+                     device_config_name: str,
+                     capture_config_name: str,
+                     device_id: Optional[str] = None) -> Dict:
+        """Start a capture using named configurations."""
+        self._ensure_manager()
+        
+        dev_cfg = self._device_configs.get(device_config_name)
+        if not dev_cfg:
+            raise ValueError(f"Device config '{device_config_name}' not found")
+        
+        cap_cfg = self._capture_configs.get(capture_config_name)
+        if not cap_cfg:
+            raise ValueError(f"Capture config '{capture_config_name}' not found")
+        
+        self._active_capture = self.manager.start_capture(
+            device_id=device_id,
+            device_configuration=dev_cfg,
+            capture_configuration=cap_cfg
+        )
+        return {"status": "capture_started"}
+
+    def wait_capture(self) -> Dict:
+        """Wait for the active capture to complete."""
+        if self._active_capture is None:
+            raise RuntimeError("No active capture")
+        self._active_capture.wait()
+        return {"status": "capture_complete"}
+
+    def save_capture(self, filepath: str) -> Dict:
+        """Save the active capture to a file."""
+        if self._active_capture is None:
+            raise RuntimeError("No active capture")
+        self._active_capture.save_capture(filepath=filepath)
+        return {"status": "saved", "filepath": filepath}
+
+    def export_raw_data(self, directory: str, analog_channels: Optional[List[int]] = None, 
+                        digital_channels: Optional[List[int]] = None) -> Dict:
+        """Export raw data from active capture to CSV."""
+        if self._active_capture is None:
+            raise RuntimeError("No active capture")
+        
+        from saleae.automation import AnalogChannelExportType
+        
+        os.makedirs(directory, exist_ok=True)
+        
+        export_config = {}
+        if analog_channels is not None:
+            from saleae.automation import ExportDataConfiguration, ExportRawDataCsvConfiguration
+            self._active_capture.export_raw_data_csv(
+                directory=directory,
+                analog_channels=analog_channels,
+                digital_channels=digital_channels
+            )
+        
+        return {"status": "exported", "directory": directory}
+
+    def close_capture(self):
+        """Close the active capture."""
+        if self._active_capture is not None:
+            self._active_capture.close()
+            self._active_capture = None

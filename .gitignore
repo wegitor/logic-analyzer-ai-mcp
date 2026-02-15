@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 *.so
 .Python
+env/
 build/
 develop-eggs/
 dist/
@@ -21,37 +22,32 @@ wheels/
 *.egg
 
 # Virtual Environment
-.env
-.venv
-env/
+.venv/
 venv/
 ENV/
 
-# IDE
-.idea/
+# IDEs
 .vscode/
-*.swp
-*.swo
+.idea/
 
-# Project specific
-logic16_output/
-*.sal
-*.csv
-
-# Logs
+# Testing output
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
 *.log
-logs/
+.pytest_cache/
 
-# OS specific
-.DS_Store
-Thumbs.db
-
-# Saleae capture files
+# Project specific output
+temp_capture_export/
+manual_export/
+demo_analysis_output/
+test_output_digital/
+*.sal
 *.logicdata
-
-# Lock files
-uv.lock
-poetry.lock
-Pipfile.lock
-yarn.lock
-package-lock.json 
+claude_config_example.json

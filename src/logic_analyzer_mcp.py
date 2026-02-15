@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import os
 import sys
 import argparse
@@ -39,8 +39,8 @@ def main(enable_logic2: Optional[bool] = None):
         # Create MCP server
         mcp = FastMCP("Logic 2 Control")
 
-        # Initialize Logic 2 automation controller
-        controller = Logic2AutomationController(manager=None)  # Manager will be initialized in the controller
+        # Initialize Logic 2 automation controller (connect via logic2_reconnect tool)
+        controller = Logic2AutomationController(manager=None)
 
         # Setup MCP tools (pass enable_logic2)
         setup_mcp_tools(mcp, controller, enable_logic2=enable_logic2)
