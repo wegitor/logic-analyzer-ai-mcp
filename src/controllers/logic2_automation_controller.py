@@ -13,6 +13,7 @@ class Logic2AutomationController:
         self._device_configs: Dict[str, LogicDeviceConfiguration] = {}
         self._capture_configs: Dict[str, CaptureConfiguration] = {}
         self._active_capture = None
+        self._analyzers = {}  # Map label -> AnalyzerHandle
         
     def _ensure_manager(self):
         """Check that manager is connected, raise clear error if not."""
@@ -166,3 +167,71 @@ class Logic2AutomationController:
         if self._active_capture is not None:
             self._active_capture.close()
             self._active_capture = None
+
+    def start_capture_with_trigger(self,
+                                 device_config_name: str,
+                                 trigger_channel_index: int,
+                                 trigger_type: str,
+                                 after_trigger_seconds: float = 5.0,
+                                 trim_data_seconds: Optional[float] = None,
+                                 device_id: Optional[str] = None) -> Dict:
+        """Start a capture using a digital trigger."""
+        self._ensure_manager()
+        
+        dev_cfg = self._device_configs.get(device_config_name)
+        if not dev_cfg:
+            raise ValueError(f"Device config '{device_config_name}' not found")
+            
+        from saleae.automation import CaptureConfiguration, DigitalTriggerCaptureMode, DigitalTriggerType
+        
+        # Parse trigger type string to enum
+        try:
+            trig_enum = getattr(DigitalTriggerType, trigger_type.upper())
+        except AttributeError:
+            raise ValueError(f"Invalid trigger type: {trigger_type}. Must be one of: RISING, FALLING, PULSE_HIGH, PULSE_LOW")
+            
+        cap_cfg = CaptureConfiguration(
+            capture_mode=DigitalTriggerCaptureMode(
+                trigger_type=trig_enum,
+                trigger_channel_index=trigger_channel_index,
+                after_trigger_seconds=after_trigger_seconds,
+                trim_data_seconds=trim_data_seconds
+            )
+        )
+        
+        self._active_capture = self.manager.start_capture(
+            device_id=device_id,
+            device_configuration=dev_cfg,
+            capture_configuration=cap_cfg
+        )
+        return {"status": "capture_started", "trigger": f"{trigger_type} on channel {trigger_channel_index}"}
+
+    def add_analyzer(self, analyzer_name: str, label: str, settings: Dict[str, Any]) -> str:
+        """Add a protocol analyzer to the active capture."""
+        if self._active_capture is None:
+            raise RuntimeError("No active capture")
+            
+        handle = self._active_capture.add_analyzer(analyzer_name, label=label, settings=settings)
+        self._analyzers[label] = handle
+        return label
+
+    def export_analyzer_data(self, filepath: str, analyzer_label: str) -> Dict:
+        """Export data from a specific analyzer to a CSV file."""
+        if self._active_capture is None:
+            raise RuntimeError("No active capture")
+            
+        handle = self._analyzers.get(analyzer_label)
+        if not handle:
+            raise ValueError(f"Analyzer with label '{analyzer_label}' not found (or not added via MCP)")
+
+        from saleae.automation import DataTableExportConfiguration
+        
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        
+        self._active_capture.export_data_table(
+            filepath=filepath,
+            analyzers=[handle]
+        )
+        return {"status": "exported", "filepath": filepath}
+

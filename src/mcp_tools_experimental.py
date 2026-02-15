@@ -332,3 +332,75 @@ def setup_mcp_tools_experimental(mcp: FastMCP, controller=None) -> None:
             }
         except Exception as e:
             return {"status": "error", "message": str(e)}
+
+    # ── Advanced Trigger & Protocol Tools ───────────────────────
+
+    @mcp.tool("start_capture_with_trigger")
+    def start_capture_with_trigger(ctx: Context,
+                                   device_config_name: str,
+                                   trigger_channel_index: int,
+                                   trigger_type: str,
+                                   after_trigger_seconds: float = 5.0,
+                                   trim_data_seconds: Optional[float] = None,
+                                   device_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Start a capture that waits for a digital trigger.
+        
+        Args:
+            device_config_name: Name of the device configuration
+            trigger_channel_index: The digital channel index to trigger on
+            trigger_type: 'RISING', 'FALLING', 'PULSE_HIGH', 'PULSE_LOW'
+            after_trigger_seconds: How much data to capture after the trigger
+            trim_data_seconds: Optional duration to keep (similar to regular capture duration). If None, keeps all data.
+            after_trigger_seconds defines how long to record *after* the trigger event.
+        """
+        try:
+            # Call controller method
+            # Note: trim_data_seconds is optional in Logic 2 API
+            res = controller.start_capture_with_trigger(
+                device_config_name=device_config_name,
+                trigger_channel_index=trigger_channel_index,
+                trigger_type=trigger_type,
+                after_trigger_seconds=after_trigger_seconds,
+                trim_data_seconds=trim_data_seconds,
+                device_id=device_id
+            )
+            return {"status": "success", "message": "Capture started with trigger", "details": res}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    @mcp.tool("add_protocol_analyzer")
+    def add_protocol_analyzer(ctx: Context,
+                              name: str,
+                              label: str,
+                              settings: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Add a protocol analyzer (decoder) to the active capture.
+        
+        Args:
+            name: The analyzer type name (e.g. 'Async Serial', 'I2C', 'SPI')
+            label: A unique name for this analyzer instance
+            settings: Dictionary of settings (e.g. {'Input Channel': 0, 'Bit Rate': 115200})
+        """
+        try:
+            lbl = controller.add_analyzer(analyzer_name=name, label=label, settings=settings)
+            return {"status": "success", "label": lbl}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    @mcp.tool("export_analyzer_data")
+    def export_analyzer_data(ctx: Context,
+                             filepath: str,
+                             analyzer_label: str) -> Dict[str, Any]:
+        """
+        Export decoded data from a protocol analyzer to CSV.
+        
+        Args:
+            filepath: Destination file path
+            analyzer_label: The label given when adding the analyzer
+        """
+        try:
+            res = controller.export_analyzer_data(filepath=filepath, analyzer_label=analyzer_label)
+            return {"status": "success", "filepath": res["filepath"]}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}

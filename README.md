@@ -89,6 +89,47 @@ Once connected, the AI assistant will have access to tools like:
 - `capture_and_analyze_digital`: One-shot capture + frequency/duty cycle analysis.
 - `capture_and_analyze_analog`: One-shot capture + voltage statistics.
 - `start_capture` / `wait_capture` / `save_capture`: Granular control over the capture workflow.
+- `start_capture_with_trigger`: Wait for a digital event (e.g. Rising Edge) before capturing.
+- `add_protocol_analyzer`: Add decoders like Serial, I2C, SPI to the capture.
+- `export_analyzer_data`: Export decoded text data to CSV.
+
+## Advanced Usage Examples
+
+### Using Digital Triggers
+To capture only when a specific event happens:
+1.  Configure device (`create_device_config`).
+2.  Start trigger capture:
+    ```python
+    # Example: Wait for Rising Edge on Channel 0, then record 1 second
+    start_capture_with_trigger(
+        device_config_name="my_config",
+        trigger_channel_index=0,
+        trigger_type="RISING",
+        after_trigger_seconds=1.0
+    )
+    ```
+
+### Protocol Decoding (e.g. Serial)
+To decode UART/Serial data and export the text:
+1.  Perform a capture (standard or triggered).
+2.  Add an analyzer:
+    ```python
+    add_protocol_analyzer(
+        name="Async Serial",
+        label="MySerial",
+        settings={
+            "Input Channel": 0,
+            "Bit Rate": 115200
+        }
+    )
+    ```
+3.  Export the decoded table:
+    ```python
+    export_analyzer_data(
+        filepath="C:\\temp\\serial_data.csv",
+        analyzer_label="MySerial"
+    )
+    ```
 
 ## Troubleshooting
 
